@@ -16,7 +16,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 
-PROFILE_NAME = "Plex (older Synology NAS) -> Apple TV 4K"
+PROFILE_NAME = "Plex (Synology NAS) -> Apple TV 4K -> Sonos (Dolby-friendly)"
 
 RES_RE = re.compile(r"\b(2160p|1080p|720p|480p)\b", re.I)
 SIZE_RE = re.compile(r"([\d.]+)\s*(GiB|MiB|GB|MB)\b", re.I)
@@ -70,6 +70,7 @@ def parse(text: str) -> list[Release]:
 
 def score(r: Release) -> Release:
     t = re.sub(r"[\s._\-]+", "", r.title.lower())
+    raw = r.title.lower()  # delimiters kept, for word-boundary token matches
     s = 0
     pros: list[str] = []
     cons: list[str] = []
@@ -101,23 +102,40 @@ def score(r: Release) -> Release:
         s -= 5
         cons.append("HDTV")
 
-    if "atmos" in t:
+    # --- Audio tuned for the real chain: Apple TV 4K -> Sonos (Dolby-only).
+    # The NAS direct-plays, so the constraint isn't NAS transcode anymore --
+    # it's what survives the Apple TV -> Sonos hop. Dolby (DDP/EAC3/AC3, incl.
+    # DDP-Atmos) passes; DTS/TrueHD/FLAC downmix or drop surround at the endpoint.
+    if "atmos" in t and "truehd" not in t:
         s += 8
-        pros.append("Atmos")
+        pros.append("Atmos (DDP)")
     if "ddp" in t or "eac3" in t:
         s += 4
         pros.append("DDP/EAC3")
-    if "aac" in t and r.resolution == "2160p":
-        s -= 3
-        cons.append("AAC on 4K (likely transcode)")
+    elif "ac3" in t or any(x in t for x in ("dd5", "dd2", "dd71")):
+        s += 3
+        pros.append("AC3 (Dolby)")
 
-    if "10bit" in t and r.resolution != "2160p":
-        s -= 5
-        cons.append("10-bit (transcode risk)")
+    # Match on raw (delimited) title so "HDTS" (HD-Telesync) isn't read as DTS.
+    if re.search(r"\bdts|\btruehd\b|\bflac\b", raw):
+        s -= 8
+        cons.append("DTS/TrueHD (Sonos endpoint won't pass cleanly)")
+
+    if "aac" in t:
+        s -= 2
+        cons.append("AAC (no Dolby surround for Sonos)")
+
+    # Apple TV 4K direct-plays 10-bit HEVC, so no 10-bit penalty anymore.
 
     if any(m in t for m in ("multi", "dual", "itaeng")):
         s -= 3
-        cons.append("multi-audio (transcode risk)")
+        cons.append("multi-audio (wrong-track risk)")
+
+    # Legacy video codecs the Apple TV cannot hardware-decode (the VC-1/MPEG-2 trap).
+    # Word-boundary match so "VC-1" is caught but "HEVC" / "hevc10bit" is not.
+    if re.search(r"\bvc-?1\b|\bmpeg-?2\b|\bxvid\b|\bdivx\b", raw):
+        s -= 12
+        cons.append("legacy video codec (Apple TV can't decode)")
 
     if "sdr" in t:
         pros.append("SDR (no HDR remap)")

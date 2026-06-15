@@ -2,11 +2,16 @@
 
 Paste a release listing (NZB/torrent search results from Sonarr, Radarr, Prowlarr, etc.) and get the best picks ranked for your specific Plex setup.
 
-Default profile: **Plex on an older Synology NAS → Apple TV 4K**. The scorer favors releases likely to **Direct Play** so the NAS CPU stays idle.
+Default profile: **Plex on a Synology NAS → Apple TV 4K → Sonos**. The scorer favors releases that play end-to-end without anything having to transcode or downmix.
 
 ## Why
 
-Older Synology NAS boxes can't transcode 4K HEVC in real time. A release that *looks* great can grind playback to a halt if the audio track, codec, or container forces Plex to transcode. This tool reads the release names, scores each candidate against your client's known direct-play capabilities, and surfaces the few that will Just Work.
+The Apple TV 4K direct-plays almost everything (HEVC, 10-bit, HDR/Dolby Vision, H.264), so the NAS isn't the bottleneck — it just streams the file. The real constraints are at the ends of the chain:
+
+- **Audio → Sonos:** Sonos decodes Dolby (Dolby Digital / DD+ / DDP-Atmos), but **DTS, DTS-HD MA, TrueHD, and FLAC don't pass cleanly** through the Apple TV → Sonos hop — they downmix or drop surround. Prefer DDP/EAC3/AC3.
+- **Legacy video codecs:** the Apple TV can't hardware-decode **VC-1 or MPEG-2** (common on old BluRay/broadcast rips), which forces a heavy transcode or fails outright.
+
+This tool reads the release names, scores each candidate against those realities, and surfaces the few that will Just Work.
 
 ## Install
 
@@ -53,12 +58,12 @@ Output:
 TOP PICKS
   [ 67] Train.Dreams.2025.2160p.NF.WEB-DL.DDP5.1.Atmos.H.265-XEBEC-AsRequested
         2160p - 11.9 GiB
-        + 4K, HEVC, WEB-DL, Atmos, DDP/EAC3
+        + 4K, HEVC, WEB-DL, Atmos (DDP), DDP/EAC3
   ...
 
 AVOID
-  [ 29] Train.Dreams.2025.1080p.10bit.WEBRip.6CH.X265.HEVC-PSA
-        - WEBRip, 10-bit (transcode risk), small 1080p
+  [ 34] Train.Dreams.2025.1080p.10bit.WEBRip.6CH.X265.HEVC-PSA
+        - WEBRip, small 1080p
 ```
 
 ## Scoring
@@ -71,11 +76,13 @@ AVOID
 | WEB-DL source | +15 |
 | WEBRip source | +4 |
 | HDTV source | −5 |
-| Atmos audio | +8 |
+| Atmos audio (in DDP/EAC3) | +8 |
 | DDP / EAC3 audio | +4 |
-| AAC audio on 4K | −3 (likely transcode) |
-| 10-bit at non-4K resolutions | −5 (older client transcode risk) |
-| Multi-audio (MULTI/DUAL/iTA-ENG) | −3 (extra tracks confuse some clients) |
+| AC3 / Dolby Digital audio | +3 |
+| DTS / DTS-HD / TrueHD / FLAC | −8 (won't pass Apple TV → Sonos cleanly) |
+| AAC audio | −2 (no Dolby surround for Sonos) |
+| Legacy video (VC-1 / MPEG-2 / XviD / DivX) | −12 (Apple TV can't hardware-decode) |
+| Multi-audio (MULTI/DUAL/iTA-ENG) | −3 (wrong default track risk) |
 | SDR tag | label only (no HDR tone-mapping required) |
 | 2160p under 8 GiB | −5 (low bitrate) |
 | 2160p over 20 GiB | −3 (very large) |
